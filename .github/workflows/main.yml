@@ -1,0 +1,46 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches:
+      - main  # Runs when code is pushed to 'main'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up SSH Key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.VM_SSH_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 13.80.140.157 >> ~/.ssh/known_hosts
+
+    - name: Deploy files to VM
+      run: |
+        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r ./* onoadmin@13.80.140.157:~/terraphp/
+
+    - name: Deploy Docker Container on VM
+      run: |
+        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no onoadmin@13.80.140.157 << 'EOF'
+        # Ensure Docker is installed
+        sudo apt update && sudo apt install -y docker.io
+
+        # Stop and remove old container if running
+        docker stop terraphp || true
+        docker rm terraphp || true
+
+        # Remove old images to free up space (optional)
+        docker rmi terraphp:latest || true
+
+        # Navigate to project directory
+        cd ~/terraphp
+
+        # Build and run the Docker container
+        docker build -t terraphp:latest .
+        docker run -d -p 80:80 --name terraphp terraphp:latest
+        EOF
